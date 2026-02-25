@@ -1,0 +1,12 @@
+{
+  "name": "binance-assistant-vue",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:backend": "pnpm --filter backend dev",
+    "dev": "pnpm --parallel -r run dev",
+    "build": "pnpm --filter frontend build",
+    "install:all": "pnpm install"
+  }
+}

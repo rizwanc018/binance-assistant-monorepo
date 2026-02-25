@@ -1,0 +1,17 @@
+node_modules
+.DS_Store
+.env
+.env.*
+dist
+dist-ssr
+coverage
+*.log
+*.local
+*.tsbuildinfo
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+dist/
