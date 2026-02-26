@@ -10,7 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 let mcpClient = null;
-let availableTools = [];
+let availableTools: any[] = [];
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -91,8 +91,6 @@ app.post("/api/chat", async (req: Request, res: Response) => {
     }
 
     const fullMessages = [{ role: "system" as const, content: SYSTEM_PROMPT }, ...messages];
-    // const fullMessages = [{ role: "system" as const, content: "you are helpful assistant" }, ...messages];
-
     try {
         const response = await openai.chat.completions.create({
             model: "gpt-5-mini",
