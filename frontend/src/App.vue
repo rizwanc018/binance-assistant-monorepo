@@ -2,9 +2,10 @@
 import { ref, nextTick, watch } from "vue";
 import Header from "./components/Header.vue";
 import { useChat } from "./composables/useChat";
+import type { Message } from "./composables/useChat";
 import Input from "./components/Input.vue";
 
-const { messages, isLoading } = useChat();
+const { messages, isLoading, approveToolCall } = useChat();
 const messagesContainer = ref<HTMLDivElement | null>(null);
 
 const scrollToBottom = async () => {
@@ -16,6 +17,15 @@ const scrollToBottom = async () => {
 
 watch(messages, () => scrollToBottom(), { deep: true });
 
+// Type guard — narrows Message to the tool_approval variant in the template
+type ToolApprovalMessage = Extract<Message, { role: "tool_approval" }>;
+// const isToolApproval = (msg: Message): msg is ToolApprovalMessage => msg.role === "tool_approval";
+const isToolApproval = (msg: Message): msg is ToolApprovalMessage => {
+    console.log({ msg });
+
+    return msg.role === "tool_approval";
+}
+
 </script>
 
 <template>
@@ -24,11 +34,45 @@ watch(messages, () => scrollToBottom(), { deep: true });
         <main class="flex-1 flex justify-center overflow-hidden">
             <div ref="messagesContainer" class="flex flex-col w-175 mx-auto overflow-y-auto p-4 gap-y-4">
                 <template v-for="(msg, i) in messages" :key="i">
-                    <div v-if="msg.content || (msg.role === 'assistant' && isLoading)"
-                        :class="msg.role === 'user' ? 'self-end  bg-muted/10 text-primary-foreground' : 'self-start bg-primary text-primary-foreground'"
-                        class="max-w-[80%] rounded-lg px-4 py-2 whitespace-pre-wrap wrap-break-word ">
+
+                    <!-- Tool approval card -->
+                    <div v-if="isToolApproval(msg)"
+                        class="self-start max-w-[80%] border border-border bg-muted rounded-lg p-4">
+                        <p class="text-sm font-semibold text-foreground mb-3">Tool Call Request</p>
+
+                        <div v-for="tool in msg.toolCalls" :key="tool.id" class="mb-3">
+                            <p class="text-sm font-mono text-primary font-medium pt-1"><span class="text-white">Tool :
+                                </span>{{ tool.name }}</p>
+                            <pre
+                                class="text-xs text-muted-foreground mt-1 bg-background rounded p-2 overflow-x-auto">{{ JSON.stringify(tool.args, null, 2) }}</pre>
+                        </div>
+
+                        <!-- Pending: show Approve / Deny buttons -->
+                        <div v-if="msg.status === 'pending'" class="flex gap-2 mt-3">
+                            <button @click="approveToolCall(msg.sessionId, true)" :disabled="isLoading"
+                                class="px-3 py-1 text-sm bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+                                Approve
+                            </button>
+                            <button @click="approveToolCall(msg.sessionId, false)" :disabled="isLoading"
+                                class="px-3 py-1 text-sm border border-border text-foreground rounded hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+                                Deny
+                            </button>
+                        </div>
+
+                        <!-- Resolved: show outcome -->
+                        <p v-else class="text-xs text-muted-foreground mt-2">
+                            {{ msg.status === "approved" ? "✅ Approved" : "❌ Denied" }}
+                        </p>
+                    </div>
+
+                    <!-- Regular user / assistant messages -->
+                    <div v-else-if="msg.role === 'user' || msg.role === 'assistant'"
+                        v-show="msg.content || (msg.role === 'assistant' && isLoading)"
+                        :class="msg.role === 'user' ? 'self-end bg-muted/10 text-primary-foreground' : 'self-start bg-primary text-primary-foreground'"
+                        class="max-w-[80%] rounded-lg px-4 py-2 whitespace-pre-wrap wrap-break-word">
                         {{ msg.content || "Thinking..." }}
                     </div>
+
                 </template>
             </div>
         </main>
