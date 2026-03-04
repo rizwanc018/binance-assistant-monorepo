@@ -37,30 +37,7 @@ Common trading pairs:
 
 Be conversational and helpful!`;
 
-// --- Session types ---
-// When OpenAI requests tool calls, we pause execution and store the
-// conversation state here. The frontend shows the pending tool calls
-// to the user, who can approve or deny before execution continues.
-
-type PendingToolCall = {
-    id: string;
-    name: string;
-    args: Record<string, unknown>;
-};
-
-type PendingSession = {
-    messages: ChatCompletionMessageParam[];
-    toolCalls: PendingToolCall[];
-};
-
-type AgenticResult =
-    | { type: "text"; content: string }
-    | { type: "tool_calls"; sessionId: string; toolCalls: PendingToolCall[] };
-
-// In-memory store: sessionId → pending conversation state
-const sessions = new Map<string, PendingSession>();
-
-// --- MCP initialization ---
+const pendingApprovals = new Map<string, (approved: boolean) => void>();
 
 async function initializeMCPClient() {
     try {
@@ -70,10 +47,7 @@ async function initializeMCPClient() {
             args: [serverPath],
         });
 
-        mcpClient = new Client(
-            { name: "binance-web-client", version: "1.0.0" },
-            { capabilities: {} },
-        );
+        mcpClient = new Client({ name: "binance-web-client", version: "1.0.0" }, { capabilities: {} });
 
         await mcpClient.connect(transport);
 
@@ -97,8 +71,6 @@ async function initializeMCPClient() {
 
 initializeMCPClient().catch(console.error);
 
-// --- Middleware ---
-
 app.use(cors());
 app.use(express.json());
 
@@ -106,76 +78,114 @@ app.get("/", (_req: Request, res: Response) => {
     res.json({ message: "Binance Assistant API" });
 });
 
-// --- Agentic loop ---
-// Calls OpenAI and checks the response:
-//   - If text → return it as the final answer
-//   - If tool_calls → pause, store state, return tool call info for user approval
+type SendEvent = (event: string, data: unknown) => void;
 
-async function runAgenticLoop(messages: ChatCompletionMessageParam[]): Promise<AgenticResult> {
+function createSender(res: Response): SendEvent {
+    return (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+type ToolCallAcc = { id: string; name: string; arguments: string };
+type PendingToolCall = { id: string; name: string; args: Record<string, unknown> };
+
+async function runAgenticLoop(messages: ChatCompletionMessageParam[], sendEvent: SendEvent): Promise<void> {
     let iterations = 0;
 
     while (iterations < MAX_TOOL_CALL_ITERATIONS) {
         iterations++;
 
-        const response = await openai.chat.completions.create({
+        const stream = await openai.chat.completions.create({
             model: "gpt-5-mini",
             messages,
             tools: availableTools.length > 0 ? availableTools : undefined,
             tool_choice: availableTools.length > 0 ? "auto" : undefined,
+            stream: true,
         });
 
-        const assistantMessage = response.choices[0]?.message;
-        if (!assistantMessage) return { type: "text", content: "No response from AI." };
+        let fullContent = "";
+        const toolCallAcc: Record<number, ToolCallAcc> = {};
 
-        // No tool calls — this is the final text answer
-        if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-            return { type: "text", content: assistantMessage.content || "" };
-        }
+        for await (const chunk of stream) {
+            const delta = chunk.choices[0]?.delta;
+            if (!delta) continue;
 
-        // Collect the tool calls into a simpler shape for the frontend
-        const pendingToolCalls: PendingToolCall[] = [];
-        for (const toolCall of assistantMessage.tool_calls) {
-            if (toolCall.type !== "function") continue;
-            let args: Record<string, unknown>;
-            try {
-                args = JSON.parse(toolCall.function.arguments);
-            } catch {
-                args = {};
+            if (delta.content) {
+                fullContent += delta.content;
+                sendEvent("delta", { token: delta.content });
             }
-            pendingToolCalls.push({ id: toolCall.id, name: toolCall.function.name, args });
+
+            // Tool calls arrive incrementally across chunks — accumulate them
+            if (delta.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                    const idx = tc.index;
+                    if (!toolCallAcc[idx]) toolCallAcc[idx] = { id: "", name: "", arguments: "" };
+                    if (tc.id) toolCallAcc[idx].id = tc.id;
+                    if (tc.function?.name) toolCallAcc[idx].name += tc.function.name;
+                    if (tc.function?.arguments) toolCallAcc[idx].arguments += tc.function.arguments;
+                }
+            }
         }
 
-        // Push the assistant message (OpenAI requires this to correlate tool results)
+        const toolCallList = Object.values(toolCallAcc);
+
+        if (toolCallList.length === 0) return;
+
+        const pendingToolCalls: PendingToolCall[] = toolCallList.map((tc) => ({
+            id: tc.id,
+            name: tc.name,
+            args: (() => {
+                try {
+                    return JSON.parse(tc.arguments);
+                } catch {
+                    return {};
+                }
+            })(),
+        }));
+
         messages.push({
             role: "assistant",
-            content: assistantMessage.content,
-            tool_calls: assistantMessage.tool_calls,
+            content: fullContent || null,
+            tool_calls: toolCallList.map((tc) => ({
+                id: tc.id,
+                type: "function" as const,
+                function: { name: tc.name, arguments: tc.arguments },
+            })),
         });
 
-        // Save the current conversation state and return to the frontend for approval
         const sessionId = randomUUID();
-        sessions.set(sessionId, { messages: [...messages], toolCalls: pendingToolCalls });
+        sendEvent("tool_call", { sessionId, toolCalls: pendingToolCalls });
 
-        return { type: "tool_calls", sessionId, toolCalls: pendingToolCalls };
+        const approved = await new Promise<boolean>((resolve) => {
+            pendingApprovals.set(sessionId, resolve);
+        });
+
+        if (!approved) {
+            for (const tc of pendingToolCalls) {
+                messages.push({ role: "tool", tool_call_id: tc.id, content: "Tool call denied by user." });
+            }
+        } else {
+            for (const tc of pendingToolCalls) {
+                console.log(` Calling tool: ${tc.name}`, tc.args);
+                try {
+                    const toolResult = await mcpClient!.callTool({ name: tc.name, arguments: tc.args });
+                    const resultText = (toolResult.content as { type: string; text: string }[])
+                        .filter((p) => p.type === "text")
+                        .map((p) => p.text)
+                        .join("\n");
+                    messages.push({
+                        role: "tool",
+                        tool_call_id: tc.id,
+                        content: resultText || "No content.",
+                    });
+                } catch (toolError) {
+                    const msg = toolError instanceof Error ? toolError.message : String(toolError);
+                    messages.push({ role: "tool", tool_call_id: tc.id, content: `Error: ${msg}` });
+                }
+            }
+        }
     }
-
-    // Exhausted max iterations — force a plain text response
-    const finalResponse = await openai.chat.completions.create({
-        model: "gpt-5-mini",
-        messages,
-    });
-
-    return {
-        type: "text",
-        content: finalResponse.choices[0]?.message?.content || "I was unable to complete the request.",
-    };
 }
 
-// --- Routes ---
 
-// Step 1: User sends a message.
-// If the AI wants to call a tool, we pause and return the tool call details
-// to the frontend instead of executing automatically.
 app.post("/api/chat", async (req: Request, res: Response) => {
     const { messages } = req.body;
 
@@ -185,28 +195,34 @@ app.post("/api/chat", async (req: Request, res: Response) => {
     }
 
     if (!mcpClient) {
-        res.status(503).json({ error: "MCP client not yet initialized. Try again shortly." });
+        res.status(503).json({ error: "MCP client not yet initialized." });
         return;
     }
 
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    const sendEvent = createSender(res);
     const fullMessages: ChatCompletionMessageParam[] = [
         { role: "system", content: SYSTEM_PROMPT },
         ...messages,
     ];
 
     try {
-        const result = await runAgenticLoop(fullMessages);
-        res.json(result);
+        await runAgenticLoop(fullMessages, sendEvent);
     } catch (err) {
         console.error("Chat error:", err);
-        res.status(500).json({ error: "Failed to get response from AI" });
+        sendEvent("error", { message: "An error occurred." });
+    } finally {
+        sendEvent("done", {});
+        res.end();
     }
 });
 
-// Step 2: User approves or denies the pending tool calls.
-// If approved → execute tools via MCP and continue the loop.
-// If denied → tell the model and let it respond without tool data.
-app.post("/api/chat/approve", async (req: Request, res: Response) => {
+
+app.post("/api/chat/approve", (req: Request, res: Response) => {
     const { sessionId, approved }: { sessionId: string; approved: boolean } = req.body;
 
     if (!sessionId || typeof approved !== "boolean") {
@@ -214,70 +230,16 @@ app.post("/api/chat/approve", async (req: Request, res: Response) => {
         return;
     }
 
-    const session = sessions.get(sessionId);
-    if (!session) {
-        res.status(404).json({ error: "Session not found or already used" });
+    const resolve = pendingApprovals.get(sessionId);
+    if (!resolve) {
+        res.status(404).json({ error: "Session not found or already resolved" });
         return;
     }
 
-    // Consume the session — each sessionId is single-use
-    sessions.delete(sessionId);
+    pendingApprovals.delete(sessionId);
+    resolve(approved); // unblocks the awaiting SSE loop
 
-    if (!mcpClient) {
-        res.status(503).json({ error: "MCP client not yet initialized." });
-        return;
-    }
-
-    const { messages, toolCalls } = session;
-
-    if (!approved) {
-        // User denied — inform the model so it can respond without the data
-        for (const toolCall of toolCalls) {
-            messages.push({
-                role: "tool",
-                tool_call_id: toolCall.id,
-                content: "Tool call was denied by the user.",
-            });
-        }
-    } else {
-        // User approved — execute each tool via MCP and collect results
-        for (const toolCall of toolCalls) {
-            console.log(`🔧 Calling tool: ${toolCall.name}`, toolCall.args);
-            try {
-                const toolResult = await mcpClient.callTool({
-                    name: toolCall.name,
-                    arguments: toolCall.args,
-                });
-
-                const resultText = (toolResult.content as { type: string; text: string }[])
-                    .filter((part) => part.type === "text")
-                    .map((part) => part.text)
-                    .join("\n");
-
-                messages.push({
-                    role: "tool",
-                    tool_call_id: toolCall.id,
-                    content: resultText || "Tool returned no content.",
-                });
-            } catch (toolError) {
-                const errorMsg = toolError instanceof Error ? toolError.message : String(toolError);
-                messages.push({
-                    role: "tool",
-                    tool_call_id: toolCall.id,
-                    content: `Error: ${errorMsg}`,
-                });
-            }
-        }
-    }
-
-    try {
-        // Continue the loop — may return text or another round of tool_calls
-        const result = await runAgenticLoop(messages);
-        res.json(result);
-    } catch (err) {
-        console.error("Approve error:", err);
-        res.status(500).json({ error: "Failed to continue after approval" });
-    }
+    res.json({ ok: true });
 });
 
 app.listen(PORT, () => {

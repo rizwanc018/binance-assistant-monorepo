@@ -5,7 +5,7 @@ import { useChat } from "./composables/useChat";
 import type { Message } from "./composables/useChat";
 import Input from "./components/Input.vue";
 
-const { messages, isLoading, approveToolCall } = useChat();
+const { messages, showThinking, approveToolCall } = useChat();
 const messagesContainer = ref<HTMLDivElement | null>(null);
 
 const scrollToBottom = async () => {
@@ -49,11 +49,11 @@ const isToolApproval = (msg: Message): msg is ToolApprovalMessage => {
 
                         <!-- Pending: show Approve / Deny buttons -->
                         <div v-if="msg.status === 'pending'" class="flex gap-2 mt-3">
-                            <button @click="approveToolCall(msg.sessionId, true)" :disabled="isLoading"
+                            <button @click="approveToolCall(msg.sessionId, true)" :disabled="msg.status !== 'pending'"
                                 class="px-3 py-1 text-sm bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
                                 Approve
                             </button>
-                            <button @click="approveToolCall(msg.sessionId, false)" :disabled="isLoading"
+                            <button @click="approveToolCall(msg.sessionId, false)" :disabled="msg.status !== 'pending'"
                                 class="px-3 py-1 text-sm border border-border text-foreground rounded hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
                                 Deny
                             </button>
@@ -67,13 +67,19 @@ const isToolApproval = (msg: Message): msg is ToolApprovalMessage => {
 
                     <!-- Regular user / assistant messages -->
                     <div v-else-if="msg.role === 'user' || msg.role === 'assistant'"
-                        v-show="msg.content || (msg.role === 'assistant' && isLoading)"
+                        v-show="msg.content"
                         :class="msg.role === 'user' ? 'self-end bg-muted/10 text-primary-foreground' : 'self-start bg-primary text-primary-foreground'"
                         class="max-w-[80%] rounded-lg px-4 py-2 whitespace-pre-wrap wrap-break-word">
-                        {{ msg.content || "Thinking..." }}
+                        {{ msg.content }}
                     </div>
 
                 </template>
+
+                <!-- Shown while waiting for the first token or waiting after tool approval -->
+                <div v-if="showThinking"
+                    class="self-start bg-primary text-primary-foreground max-w-[80%] rounded-lg px-4 py-2">
+                    Thinking...
+                </div>
             </div>
         </main>
         <Input />
