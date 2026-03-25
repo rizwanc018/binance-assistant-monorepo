@@ -36,6 +36,7 @@ Common trading pairs:
 - Dogecoin: DOGEUSDT
 
 Be conversational and helpful!
+
 For Klines send complete candlestick data in the following format:
 {
     "openTime": 1689728000000,
