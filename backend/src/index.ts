@@ -35,7 +35,18 @@ Common trading pairs:
 - XRP: XRPUSDT
 - Dogecoin: DOGEUSDT
 
-Be conversational and helpful!`;
+Be conversational and helpful!
+For Klines send complete candlestick data in the following format:
+{
+    "openTime": 1689728000000,
+    "open": 0.001,
+    "high": 0.002,
+    "low": 0.001,
+    "close": 0.002,
+    "volume": 1000,
+    "closeTime": 1689728000000
+}
+`;
 
 const pendingApprovals = new Map<string, (approved: boolean) => void>();
 
@@ -185,7 +196,6 @@ async function runAgenticLoop(messages: ChatCompletionMessageParam[], sendEvent:
     }
 }
 
-
 app.post("/api/chat", async (req: Request, res: Response) => {
     const { messages } = req.body;
 
@@ -220,7 +230,6 @@ app.post("/api/chat", async (req: Request, res: Response) => {
         res.end();
     }
 });
-
 
 app.post("/api/chat/approve", (req: Request, res: Response) => {
     const { sessionId, approved }: { sessionId: string; approved: boolean } = req.body;
