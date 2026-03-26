@@ -184,9 +184,8 @@ async function runAgenticLoop(messages: ChatCompletionMessageParam[], sendEvent:
                         .filter((p) => p.type === "text")
                         .map((p) => p.text)
                         .join("\n");
-                    // ── Kline chart detection ──────────────────────────────────────
-                    // If this was a get_klines call, parse the JSON result and emit
-                    // a dedicated chart_data SSE event so the frontend can render it.
+
+                    //  Kline chart detection 
                     if (tc.name === "get_klines" && resultText) {
                         try {
                             const candles: RawCandle[] = JSON.parse(resultText);
@@ -211,7 +210,6 @@ async function runAgenticLoop(messages: ChatCompletionMessageParam[], sendEvent:
                             // Not valid JSON — skip chart emission, carry on
                         }
                     }
-                    // ──────────────────────────────────────────────────────────────
 
                     messages.push({
                         role: "tool",
