@@ -36,17 +36,8 @@ Common trading pairs:
 - Dogecoin: DOGEUSDT
 
 Be conversational and helpful!
-
-For Klines send complete candlestick data in the following format:
-{
-    "openTime": 1689728000000,
-    "open": 0.001,
-    "high": 0.002,
-    "low": 0.001,
-    "close": 0.002,
-    "volume": 1000,
-    "closeTime": 1689728000000
-}
+All responses should be short and concise.
+For klines only give your prediction of the next candle.
 `;
 
 const pendingApprovals = new Map<string, (approved: boolean) => void>();
@@ -98,6 +89,16 @@ function createSender(res: Response): SendEvent {
 
 type ToolCallAcc = { id: string; name: string; arguments: string };
 type PendingToolCall = { id: string; name: string; args: Record<string, unknown> };
+// Shape that comes back from get_klines MCP tool
+interface RawCandle {
+    openTime: number;
+    open: string | number;
+    high: string | number;
+    low: string | number;
+    close: string | number;
+    volume: string | number;
+    closeTime: number;
+}
 
 async function runAgenticLoop(messages: ChatCompletionMessageParam[], sendEvent: SendEvent): Promise<void> {
     let iterations = 0;
@@ -183,6 +184,35 @@ async function runAgenticLoop(messages: ChatCompletionMessageParam[], sendEvent:
                         .filter((p) => p.type === "text")
                         .map((p) => p.text)
                         .join("\n");
+                    // ── Kline chart detection ──────────────────────────────────────
+                    // If this was a get_klines call, parse the JSON result and emit
+                    // a dedicated chart_data SSE event so the frontend can render it.
+                    if (tc.name === "get_klines" && resultText) {
+                        try {
+                            const candles: RawCandle[] = JSON.parse(resultText);
+                            if (Array.isArray(candles) && candles.length > 0) {
+                                // Normalise to numbers — Binance returns strings for prices
+                                const chartCandles = candles.map((c) => ({
+                                    time: Math.floor(c.openTime / 1000), // Lightweight Charts uses seconds
+                                    open: Number(c.open),
+                                    high: Number(c.high),
+                                    low: Number(c.low),
+                                    close: Number(c.close),
+                                    volume: Number(c.volume),
+                                }));
+
+                                sendEvent("chart_data", {
+                                    symbol: (tc.args.symbol as string) ?? "UNKNOWN",
+                                    interval: (tc.args.interval as string) ?? "",
+                                    candles: chartCandles,
+                                });
+                            }
+                        } catch {
+                            // Not valid JSON — skip chart emission, carry on
+                        }
+                    }
+                    // ──────────────────────────────────────────────────────────────
+
                     messages.push({
                         role: "tool",
                         tool_call_id: tc.id,

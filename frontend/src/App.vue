@@ -4,6 +4,7 @@ import Header from "./components/Header.vue";
 import { useChat } from "./composables/useChat";
 import type { Message } from "./composables/useChat";
 import Input from "./components/Input.vue";
+import Candlestickchart from "./components/Candlestickchart.vue";
 
 const { messages, showThinking, approveToolCall } = useChat();
 const messagesContainer = ref<HTMLDivElement | null>(null);
@@ -19,12 +20,14 @@ watch(messages, () => scrollToBottom(), { deep: true });
 
 // Type guard — narrows Message to the tool_approval variant in the template
 type ToolApprovalMessage = Extract<Message, { role: "tool_approval" }>;
+type ChartMessage = Extract<Message, { role: "chart" }>;
+
 // const isToolApproval = (msg: Message): msg is ToolApprovalMessage => msg.role === "tool_approval";
 const isToolApproval = (msg: Message): msg is ToolApprovalMessage => {
     console.log({ msg });
-
     return msg.role === "tool_approval";
 }
+const isChart = (msg: Message): msg is ChartMessage => msg.role === "chart";
 
 </script>
 
@@ -35,8 +38,14 @@ const isToolApproval = (msg: Message): msg is ToolApprovalMessage => {
             <div ref="messagesContainer" class="flex flex-col w-175 mx-auto overflow-y-auto p-4 gap-y-4">
                 <template v-for="(msg, i) in messages" :key="i">
 
+                    <!-- Candlestick chart -->
+                    <div v-if="isChart(msg)" class="self-stretch">
+                        <Candlestickchart :symbol="msg.symbol" :interval="msg.interval" :candles="msg.candles" />
+                        <!-- <p>Chart for {{ msg.symbol }} {{ msg.interval }} {{ JSON.stringify(msg.candles) }}</p> -->
+                    </div>
+
                     <!-- Tool approval card -->
-                    <div v-if="isToolApproval(msg)"
+                    <div v-else-if="isToolApproval(msg)"
                         class="self-start max-w-[80%] border border-border bg-muted rounded-lg p-4">
                         <p class="text-sm font-semibold text-foreground mb-3">Tool Call Request</p>
 
@@ -66,8 +75,7 @@ const isToolApproval = (msg: Message): msg is ToolApprovalMessage => {
                     </div>
 
                     <!-- Regular user / assistant messages -->
-                    <div v-else-if="msg.role === 'user' || msg.role === 'assistant'"
-                        v-show="msg.content"
+                    <div v-else-if="msg.role === 'user' || msg.role === 'assistant'" v-show="msg.content"
                         :class="msg.role === 'user' ? 'self-end bg-muted/10 text-primary-foreground' : 'self-start bg-primary text-primary-foreground'"
                         class="max-w-[80%] rounded-lg px-4 py-2 whitespace-pre-wrap wrap-break-word">
                         {{ msg.content }}
