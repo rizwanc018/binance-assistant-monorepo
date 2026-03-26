@@ -6,11 +6,26 @@ export interface ToolCallInfo {
   args: Record<string, unknown>;
 }
 
+export interface ChartCandle {
+  time: number; // Unix seconds — Lightweight Charts format
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 // Discriminated union — each role has its own shape
 export type Message =
   | { role: "user"; content: string }
   | { role: "assistant"; content: string }
-  | { role: "tool_approval"; sessionId: string; toolCalls: ToolCallInfo[]; status: "pending" | "approved" | "denied" };
+  | {
+      role: "tool_approval";
+      sessionId: string;
+      toolCalls: ToolCallInfo[];
+      status: "pending" | "approved" | "denied";
+    }
+  | { role: "chart"; symbol: string; interval: string; candles: ChartCandle[] };
 
 const API_URL = "http://localhost:3000/api/chat";
 
@@ -18,7 +33,6 @@ const isLoading = ref(false);
 const messages = ref<Message[]>([]);
 
 export function useChat() {
-
   // Show "Thinking..." when loading but no text is actively streaming yet:
   // - after user sends a message (waiting for first token)
   // - after approving a tool call (waiting for OpenAI's next response)
@@ -75,8 +89,9 @@ export function useChat() {
             currentAssistantMsgIndex = messages.value.length - 1;
           }
           // Access through the reactive array — this triggers Vue's Proxy and re-renders
-          (messages.value[currentAssistantMsgIndex] as Extract<Message, { role: "assistant" }>).content += data.token;
-
+          (
+            messages.value[currentAssistantMsgIndex] as Extract<Message, { role: "assistant" }>
+          ).content += data.token;
         } else if (eventName === "tool_call") {
           // Reset so the final answer after tool execution gets its own bubble
           currentAssistantMsgIndex = -1;
@@ -86,11 +101,18 @@ export function useChat() {
             toolCalls: data.toolCalls,
             status: "pending",
           });
-
+        } else if (eventName === "chart_data") {
+          // Insert chart message — assistant text bubble (if any) comes after this
+          currentAssistantMsgIndex = -1;
+          messages.value.push({
+            role: "chart",
+            symbol: data.symbol,
+            interval: data.interval,
+            candles: data.candles,
+          });
         } else if (eventName === "error") {
           messages.value.push({ role: "assistant", content: `Error: ${data.message}` });
           return;
-
         } else if (eventName === "done") {
           return;
         }
@@ -105,8 +127,9 @@ export function useChat() {
     try {
       // Only send user/assistant messages — tool_approval is UI-only
       const chatMessages = messages.value
-        .filter((m): m is Extract<Message, { role: "user" | "assistant" }> =>
-          m.role === "user" || m.role === "assistant",
+        .filter(
+          (m): m is Extract<Message, { role: "user" | "assistant" }> =>
+            m.role === "user" || m.role === "assistant",
         )
         .filter((m) => m.content)
         .map(({ role, content }) => ({ role, content }));
@@ -121,7 +144,10 @@ export function useChat() {
 
       await readSSEStream(res);
     } catch (err) {
-      messages.value.push({ role: "assistant", content: "Sorry, something went wrong. Please try again." });
+      messages.value.push({
+        role: "assistant",
+        content: "Sorry, something went wrong. Please try again.",
+      });
       console.error("Chat error:", err);
     } finally {
       isLoading.value = false;
@@ -144,7 +170,9 @@ export function useChat() {
     }).catch(console.error);
   };
 
-  const clearChat = () => { messages.value = []; };
+  const clearChat = () => {
+    messages.value = [];
+  };
 
   return { isLoading, showThinking, sendMessage, approveToolCall, messages, clearChat };
 }
