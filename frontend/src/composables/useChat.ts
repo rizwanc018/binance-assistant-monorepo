@@ -41,6 +41,7 @@ export function useChat() {
     const last = messages.value[messages.value.length - 1];
     if (!last) return true;
     if (last.role === "user") return true;
+    if (last.role === "chart") return true;
     if (last.role === "tool_approval" && last.status !== "pending") return true;
     return false;
   });

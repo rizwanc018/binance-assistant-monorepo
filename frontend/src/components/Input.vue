@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import SendIcon from "./icons/SendIcon.vue";
 import { useChat } from "@/composables/useChat";
 
@@ -12,6 +12,7 @@ const sendMessage = async () => {
     if (!input.value.trim() || isLoading.value) return;
     const message = input.value;
     input.value = "";
+    await nextTick(); 
     resizeTextArea();
     await sendToAI(message);
 };

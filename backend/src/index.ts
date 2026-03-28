@@ -37,7 +37,7 @@ Common trading pairs:
 
 Be conversational and helpful!
 All responses should be short and concise.
-For klines only give your prediction of the next candle.
+For klines only give your prediction of the next candle. dont give the data itself.
 `;
 
 const pendingApprovals = new Map<string, (approved: boolean) => void>();
