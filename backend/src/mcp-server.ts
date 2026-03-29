@@ -2,338 +2,362 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { getCache } from "./cache";
 
 const BINANCE_API = "https://api.binance.com/api/v3";
+const EXCHANGE_INFO_TTL = 5 * 60 * 1000; // 5 minutes
 
 const server = new McpServer({
-  name: "binance-mcp",
-  version: "2.0.0",
+    name: "binance-mcp",
+    version: "2.0.0",
 });
 
-
-
 async function binanceFetch(path: string, params?: Record<string, any>) {
-  const url = new URL(`${BINANCE_API}${path}`);
+    const url = new URL(`${BINANCE_API}${path}`);
 
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        if (Array.isArray(value)) {
-          url.searchParams.append(key, JSON.stringify(value));
-        } else {
-          url.searchParams.append(key, String(value));
-        }
-      }
-    });
-  }
+    if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== undefined) {
+                if (Array.isArray(value)) {
+                    url.searchParams.append(key, JSON.stringify(value));
+                } else {
+                    url.searchParams.append(key, String(value));
+                }
+            }
+        });
+    }
 
-  const res = await fetch(url.toString());
+    const res = await fetch(url.toString());
 
-  if (!res.ok) {
-    throw new Error(`Binance API error: ${res.status} ${res.statusText}`);
-  }
+    if (!res.ok) {
+        throw new Error(`Binance API error: ${res.status} ${res.statusText}`);
+    }
 
-  return res.json();
+    return res.json();
 }
 
 function success(data: any) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
-  };
+    return {
+        content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+    };
 }
 
 function failure(error: any) {
-  return {
-    content: [{ type: "text" as const, text: String(error) }],
-    isError: true,
-  };
+    return {
+        content: [{ type: "text" as const, text: String(error) }],
+        isError: true,
+    };
 }
-
-
-
 
 // Ping
 server.registerTool(
-  "ping",
-  {
-    description: "Test Binance API connectivity",
-    inputSchema: {},
-  },
-  async () => {
-    try {
-      const data = await binanceFetch("/ping");
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    "ping",
+    {
+        description: "Test Binance API connectivity",
+        inputSchema: {},
+    },
+    async () => {
+        try {
+            const data = await binanceFetch("/ping");
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
 // Server Time
 server.registerTool(
-  "get_server_time",
-  {
-    description: "Get Binance server time",
-    inputSchema: {},
-  },
-  async () => {
-    try {
-      const data = await binanceFetch("/time");
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    "get_server_time",
+    {
+        description: "Get Binance server time",
+        inputSchema: {},
+    },
+    async () => {
+        try {
+            const data = await binanceFetch("/time");
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
 // Exchange Info
 server.registerTool(
-  "get_exchange_info",
-  {
-    description: "Get exchange trading rules and symbol info",
-    inputSchema: {
-      symbol: z.string().optional(),
-      symbols: z.array(z.string()).optional(),
-      permissions: z.union([z.string(), z.array(z.string())]).optional(),
-      showPermissionSets: z.boolean().optional(),
-      symbolStatus: z.enum(["TRADING", "HALT", "BREAK"]).optional(),
+    "get_exchange_info",
+    {
+        description: "Get exchange trading rules and symbol info",
+        inputSchema: {
+            symbol: z.string().optional(),
+            symbols: z.array(z.string()).optional(),
+            permissions: z.union([z.string(), z.array(z.string())]).optional(),
+            showPermissionSets: z.boolean().optional(),
+            symbolStatus: z.enum(["TRADING", "HALT", "BREAK"]).optional(),
+        },
     },
-  },
-  async (params) => {
-    try {
-      const data = await binanceFetch("/exchangeInfo", params);
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    async (params) => {
+        try {
+            const cacheKey = `exchangeInfo:${JSON.stringify(params || {})}`;
+            const cached = getCache(cacheKey);
+            if (cached) {
+                return {
+                    content: [
+                        {
+                            type: "text" as const,
+                            text: JSON.stringify(
+                                {
+                                    ...cached,
+                                    _cached: true,
+                                },
+                                null,
+                                2,
+                            ),
+                        },
+                    ],
+                };
+            }
+
+            const data = await binanceFetch("/exchangeInfo", params);
+            setCache(cacheKey, data, EXCHANGE_INFO_TTL);
+
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
-
-
-
 
 // Order Book
 server.registerTool(
-  "get_order_book",
-  {
-    description: "Get order book depth",
-    inputSchema: {
-      symbol: z.string(),
-      limit: z.number().optional(),
+    "get_order_book",
+    {
+        description: "Get order book depth",
+        inputSchema: {
+            symbol: z.string(),
+            limit: z.number().optional(),
+        },
     },
-  },
-  async ({ symbol, limit }) => {
-    try {
-      const data = await binanceFetch("/depth", { symbol, limit });
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    async ({ symbol, limit }) => {
+        try {
+            const data = await binanceFetch("/depth", { symbol, limit });
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
 // Recent Trades
 server.registerTool(
-  "get_recent_trades",
-  {
-    description: "Get recent trades",
-    inputSchema: {
-      symbol: z.string(),
-      limit: z.number().optional(),
+    "get_recent_trades",
+    {
+        description: "Get recent trades",
+        inputSchema: {
+            symbol: z.string(),
+            limit: z.number().optional(),
+        },
     },
-  },
-  async ({ symbol, limit }) => {
-    try {
-      const data = await binanceFetch("/trades", { symbol, limit });
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    async ({ symbol, limit }) => {
+        try {
+            const data = await binanceFetch("/trades", { symbol, limit });
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
 // Historical Trades
 server.registerTool(
-  "get_historical_trades",
-  {
-    description: "Get historical trades (requires API key in real usage)",
-    inputSchema: {
-      symbol: z.string(),
-      limit: z.number().optional(),
-      fromId: z.number().optional(),
+    "get_historical_trades",
+    {
+        description: "Get historical trades (requires API key in real usage)",
+        inputSchema: {
+            symbol: z.string(),
+            limit: z.number().optional(),
+            fromId: z.number().optional(),
+        },
     },
-  },
-  async ({ symbol, limit, fromId }) => {
-    try {
-      const data = await binanceFetch("/historicalTrades", {
-        symbol,
-        limit,
-        fromId,
-      });
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    async ({ symbol, limit, fromId }) => {
+        try {
+            const data = await binanceFetch("/historicalTrades", {
+                symbol,
+                limit,
+                fromId,
+            });
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
 // Aggregate Trades
 server.registerTool(
-  "get_agg_trades",
-  {
-    description: "Get compressed aggregate trades",
-    inputSchema: {
-      symbol: z.string(),
-      fromId: z.number().optional(),
-      startTime: z.number().optional(),
-      endTime: z.number().optional(),
-      limit: z.number().optional(),
+    "get_agg_trades",
+    {
+        description: "Get compressed aggregate trades",
+        inputSchema: {
+            symbol: z.string(),
+            fromId: z.number().optional(),
+            startTime: z.number().optional(),
+            endTime: z.number().optional(),
+            limit: z.number().optional(),
+        },
     },
-  },
-  async (params) => {
-    try {
-      const data = await binanceFetch("/aggTrades", params);
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    async (params) => {
+        try {
+            const data = await binanceFetch("/aggTrades", params);
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
 // Klines (FIXED: Spot API)
 server.registerTool(
-  "get_klines",
-  {
-    description: "Get candlestick data (OHLCV)",
-    inputSchema: {
-      symbol: z.string(),
-      interval: z.enum([
-        "1m","3m","5m","15m","30m",
-        "1h","2h","4h","6h","8h","12h",
-        "1d","3d","1w","1M"
-      ]),
-      limit: z.number().max(1000).optional(),
-      startTime: z.number().optional(),
-      endTime: z.number().optional(),
+    "get_klines",
+    {
+        description: "Get candlestick data (OHLCV)",
+        inputSchema: {
+            symbol: z.string(),
+            interval: z.enum([
+                "1m",
+                "3m",
+                "5m",
+                "15m",
+                "30m",
+                "1h",
+                "2h",
+                "4h",
+                "6h",
+                "8h",
+                "12h",
+                "1d",
+                "3d",
+                "1w",
+                "1M",
+            ]),
+            limit: z.number().max(1000).optional(),
+            startTime: z.number().optional(),
+            endTime: z.number().optional(),
+        },
     },
-  },
-  async ({ symbol, interval, limit, startTime, endTime }) => {
-    try {
-      const raw = await binanceFetch("/klines", {
-        symbol,
-        interval,
-        limit,
-        startTime,
-        endTime,
-      });
+    async ({ symbol, interval, limit, startTime, endTime }) => {
+        try {
+            const raw = await binanceFetch("/klines", {
+                symbol,
+                interval,
+                limit,
+                startTime,
+                endTime,
+            });
 
-      const formatted = raw.map((c: any[]) => ({
-        openTime: c[0],
-        open: c[1],
-        high: c[2],
-        low: c[3],
-        close: c[4],
-        volume: c[5],
-        closeTime: c[6],
-      }));
+            const formatted = raw.map((c: any[]) => ({
+                openTime: c[0],
+                open: c[1],
+                high: c[2],
+                low: c[3],
+                close: c[4],
+                volume: c[5],
+                closeTime: c[6],
+            }));
 
-      return success(formatted);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+            return success(formatted);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
 // Average Price
 server.registerTool(
-  "get_avg_price",
-  {
-    description: "Get current average price",
-    inputSchema: {
-      symbol: z.string(),
+    "get_avg_price",
+    {
+        description: "Get current average price",
+        inputSchema: {
+            symbol: z.string(),
+        },
     },
-  },
-  async ({ symbol }) => {
-    try {
-      const data = await binanceFetch("/avgPrice", { symbol });
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    async ({ symbol }) => {
+        try {
+            const data = await binanceFetch("/avgPrice", { symbol });
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
 // 24h Ticker
 server.registerTool(
-  "get_24hr_ticker",
-  {
-    description: "24hr price change stats",
-    inputSchema: {
-      symbol: z.string().optional(),
+    "get_24hr_ticker",
+    {
+        description: "24hr price change stats",
+        inputSchema: {
+            symbol: z.string().optional(),
+        },
     },
-  },
-  async ({ symbol }) => {
-    try {
-      const data = await binanceFetch("/ticker/24hr", { symbol });
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    async ({ symbol }) => {
+        try {
+            const data = await binanceFetch("/ticker/24hr", { symbol });
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
 // Price
 server.registerTool(
-  "get_symbol_price",
-  {
-    description: "Latest price",
-    inputSchema: {
-      symbol: z.string().optional(),
+    "get_symbol_price",
+    {
+        description: "Latest price",
+        inputSchema: {
+            symbol: z.string().optional(),
+        },
     },
-  },
-  async ({ symbol }) => {
-    try {
-      const data = await binanceFetch("/ticker/price", { symbol });
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    async ({ symbol }) => {
+        try {
+            const data = await binanceFetch("/ticker/price", { symbol });
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
 // Book Ticker
 server.registerTool(
-  "get_book_ticker",
-  {
-    description: "Best bid/ask price",
-    inputSchema: {
-      symbol: z.string().optional(),
+    "get_book_ticker",
+    {
+        description: "Best bid/ask price",
+        inputSchema: {
+            symbol: z.string().optional(),
+        },
     },
-  },
-  async ({ symbol }) => {
-    try {
-      const data = await binanceFetch("/ticker/bookTicker", { symbol });
-      return success(data);
-    } catch (e) {
-      return failure(e);
-    }
-  }
+    async ({ symbol }) => {
+        try {
+            const data = await binanceFetch("/ticker/bookTicker", { symbol });
+            return success(data);
+        } catch (e) {
+            return failure(e);
+        }
+    },
 );
 
-
-
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("✅ Binance MCP Server running");
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("✅ Binance MCP Server running");
 }
 
 main().catch((error) => {
-  console.error("Fatal error:", error);
-  process.exit(1);
+    console.error("Fatal error:", error);
+    process.exit(1);
 });
-
-
 
 // // @ts-nocheck
 // import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
