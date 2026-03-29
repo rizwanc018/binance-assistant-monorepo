@@ -1,3 +1,5 @@
+https://github.com/user-attachments/assets/91d57677-8cbf-4410-b689-b167d80948b0
+
 # Binance Assistant
 
 A full-stack cryptocurrency assistant that integrates with Binance market data using an agentic chat interface. Built with Vue 3 + Express.js, powered by OpenAI and the Model Context Protocol (MCP).
