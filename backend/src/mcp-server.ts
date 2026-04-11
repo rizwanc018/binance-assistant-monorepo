@@ -100,7 +100,8 @@ server.registerTool(
 server.registerTool(
     "get_order_book",
     {
-        description: "Get bid/ask order book depth. Use only when the user is specifically asking about liquidity, support/resistance levels, or wants to see the order book.",
+        description:
+            "Get bid/ask order book depth. Use only when the user is specifically asking about liquidity, support/resistance levels, or wants to see the order book.",
         inputSchema: {
             symbol: z.string(),
             limit: z.number().optional().default(10),
@@ -223,7 +224,8 @@ server.registerTool(
 server.registerTool(
     "analyze_price_action",
     {
-        description: "Fetch candlestick data and return a summarized analysis: trend direction, average volume, and price range. Use for technical analysis questions or when the user asks about price movement over time.",
+        description:
+            "Candlestick data and trend summary for a symbol. Use for chart or technical analysis questions.",
         inputSchema: {
             symbol: z.string(),
             interval: z.enum(["1m", "5m", "15m", "1h", "4h", "1d"]),
@@ -269,7 +271,8 @@ server.registerTool(
 server.registerTool(
     "get_market_overview",
     {
-        description: "Get a complete market snapshot for a symbol — current price, 24h change, volume, and best bid/ask. Use whenever the user asks about price, performance, or market status.",
+        description:
+            "Get a complete market snapshot for a symbol — current price, 24h change, volume, and best bid/ask. Use whenever the user asks about price, performance, or market status.",
         inputSchema: {
             symbol: z.string(),
         },
