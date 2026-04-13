@@ -187,10 +187,10 @@ async function runAgenticLoop(messages: ChatCompletionMessageParam[], sendEvent:
                         .map((p) => p.text)
                         .join("\n");
 
-                    //  Kline chart detection 
-                    if (tc.name === "get_klines" && resultText) {
+                    //  Kline chart detection
+                    if (tc.name === "analyze_price_action" && resultText) {
                         try {
-                            const candles: RawCandle[] = JSON.parse(resultText);
+                            const candles: RawCandle[] = JSON.parse(resultText)._chartCandles;
                             if (Array.isArray(candles) && candles.length > 0) {
                                 // Normalise to numbers — Binance returns strings for prices
                                 const chartCandles = candles.map((c) => ({

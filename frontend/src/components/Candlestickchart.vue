@@ -275,8 +275,14 @@ function fmtVol(n: number) {
   font-size: 12px;
   font-weight: 600;
 }
-.price-change.up { color: #00c896; }
-.price-change.down { color: #ff4d6a; }
+
+.price-change.up {
+  color: #00c896;
+}
+
+.price-change.down {
+  color: #ff4d6a;
+}
 
 .chart-stats {
   display: flex;
@@ -301,8 +307,14 @@ function fmtVol(n: number) {
   font-size: 11px;
   color: #8892a4;
 }
-.stat-value.up { color: #00c896; }
-.stat-value.down { color: #ff4d6a; }
+
+.stat-value.up {
+  color: #00c896;
+}
+
+.stat-value.down {
+  color: #ff4d6a;
+}
 
 .chart-canvas {
   width: 100%;

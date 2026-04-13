@@ -24,7 +24,6 @@ type ChartMessage = Extract<Message, { role: "chart" }>;
 
 // const isToolApproval = (msg: Message): msg is ToolApprovalMessage => msg.role === "tool_approval";
 const isToolApproval = (msg: Message): msg is ToolApprovalMessage => {
-    console.log({ msg });
     return msg.role === "tool_approval";
 }
 const isChart = (msg: Message): msg is ChartMessage => msg.role === "chart";

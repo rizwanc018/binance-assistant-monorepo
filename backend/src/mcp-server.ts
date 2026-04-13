@@ -237,12 +237,12 @@ server.registerTool(
             const raw = await binanceFetch("/klines", { symbol, interval, limit });
 
             const candles = raw.map((c: any[]) => ({
+                openTime: c[0],
                 open: Number(c[1]),
                 high: Number(c[2]),
                 low: Number(c[3]),
                 close: Number(c[4]),
                 volume: Number(c[5]),
-                time: c[0],
             }));
 
             const first = candles[0].close;
