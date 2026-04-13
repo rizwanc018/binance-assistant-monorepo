@@ -27,7 +27,8 @@ export type Message =
     }
   | { role: "chart"; symbol: string; interval: string; candles: ChartCandle[] };
 
-const API_URL = "http://localhost:3000/api/chat";
+// const API_URL = "http://localhost:3000/api/chat";
+const API_URL = `${import.meta.env.VITE_API_URL}/api/chat`
 
 const isLoading = ref(false);
 const messages = ref<Message[]>([]);

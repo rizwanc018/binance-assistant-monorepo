@@ -11,6 +11,7 @@
         "build": "tsc",
         "start": "node dist/index.js",
         "mcp:dev": "tsx watch src/mcp-server.ts",
+        "mcp:build": "tsc src/mcp-server.ts",
         "mcp:inspect": "npx @modelcontextprotocol/inspector tsx  src/mcp-server.ts"
     },
     "dependencies": {
