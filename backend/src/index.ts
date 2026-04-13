@@ -39,7 +39,7 @@ Common trading pairs:
 
 Be conversational and helpful!
 All responses should be short and concise.
-For klines only give your prediction of the next candle. dont give the data itself.
+For klines no response is needed.
 `;
 
 const pendingApprovals = new Map<string, (approved: boolean) => void>();
@@ -104,6 +104,7 @@ interface RawCandle {
 
 async function runAgenticLoop(messages: ChatCompletionMessageParam[], sendEvent: SendEvent): Promise<void> {
     let iterations = 0;
+    let chartEmitted = false;
 
     while (iterations < MAX_TOOL_CALL_ITERATIONS) {
         iterations++;
@@ -207,6 +208,7 @@ async function runAgenticLoop(messages: ChatCompletionMessageParam[], sendEvent:
                                     interval: (tc.args.interval as string) ?? "",
                                     candles: chartCandles,
                                 });
+                                chartEmitted = true;
                             }
                         } catch {
                             // Not valid JSON — skip chart emission, carry on
@@ -224,6 +226,8 @@ async function runAgenticLoop(messages: ChatCompletionMessageParam[], sendEvent:
                 }
             }
         }
+
+        if (chartEmitted) return;
     }
 }
 
