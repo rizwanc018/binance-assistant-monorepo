@@ -6,7 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { getCache } from "./cache";
 
-const BINANCE_API = "https://api.binance.com/api/v3";
+const BINANCE_API = process.env.BINANCE_API_BASE ?? "https://api.binance.com/api/v3";
 const EXCHANGE_INFO_TTL = 5 * 60 * 1000; // 5 minutes
 
 const server = new McpServer({
@@ -32,7 +32,8 @@ async function binanceFetch(path: string, params?: Record<string, any>) {
     const res = await fetch(url.toString());
 
     if (!res.ok) {
-        throw new Error(`Binance API error: ${res.status} ${res.statusText}`);
+        const body = await res.text().catch(() => "");
+        throw new Error(`Binance API error: ${res.status} ${res.statusText} — ${body}`);
     }
 
     return res.json();
@@ -45,6 +46,7 @@ function success(data: any) {
 }
 
 function failure(error: any) {
+    console.log({error})
     return {
         content: [{ type: "text" as const, text: String(error) }],
         isError: true,
