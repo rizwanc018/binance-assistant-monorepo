@@ -84,7 +84,7 @@ const isChart = (msg: Message): msg is ChartMessage => msg.role === "chart";
 
                 <!-- Shown while waiting for the first token or waiting after tool approval -->
                 <div v-if="showThinking"
-                    class="self-start bg-primary text-primary-foreground max-w-[80%] rounded-lg px-4 py-2">
+                    class="self-start bg-primary text-primary-foreground max-w-[80%] rounded-lg px-4 py-2 animate-pulse">
                     Thinking...
                 </div>
             </div>
